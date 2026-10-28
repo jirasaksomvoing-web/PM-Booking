@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>THAIKALI | PM Booking</title>
+  <style>
+    :root{--green:#166534;--green2:#15803d;--bg:#f3f6f4;--line:#dbe4dd;--text:#17231b}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:Arial,"Noto Sans Thai",sans-serif;color:var(--text)}
+    .wrap{max-width:900px;margin:28px auto;padding:0 16px}.head{background:linear-gradient(135deg,#14532d,#15803d);color:white;border-radius:16px;padding:24px}
+    h1{margin:0 0 6px;font-size:26px}.sub{opacity:.9}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px;margin-top:16px;box-shadow:0 5px 20px #16351b0a}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.field{display:flex;flex-direction:column;gap:7px}label{font-weight:700;font-size:14px}
+    input,select,textarea{width:100%;padding:11px 12px;border:1px solid #cbd5ce;border-radius:9px;font-size:15px;background:white;color:var(--text)}
+    input:focus,select:focus,textarea:focus{outline:2px solid #86efac;border-color:var(--green2)}
+    .wide{grid-column:1/-1}.hint{font-size:13px;color:#526258}.btn{border:0;background:var(--green);color:#fff;padding:13px 18px;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;width:100%}.btn:disabled{opacity:.55;cursor:wait}
+    .status{margin-top:14px;padding:12px;border-radius:9px;display:none;white-space:pre-wrap}.ok{display:block;background:#dcfce7;color:#14532d}.err{display:block;background:#fee2e2;color:#991b1b}
+    .quota{font-size:14px;padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px}.foot{text-align:center;color:#647067;font-size:12px;margin:20px}
+    @media(max-width:620px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}.head{padding:20px}h1{font-size:22px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="head">
+    <h1>THAIKALI | PM Booking</h1>
+    <div class="sub">ระบบจองช่วงเวลาบำรุงรักษาอุปกรณ์ IT</div>
+  </header>
+  <section class="card">
+    <form id="bookingForm">
+      <div class="grid">
+        <div class="field wide">
+          <label for="employee">ชื่อพนักงานผู้จอง (ดึงจากชีต User)</label>
+          <select id="employee" required><option value="">กำลังโหลดรายชื่อ...</option></select>
+        </div>
+        <div class="field">
+          <label for="department">แผนก</label>
+          <select id="department" required><option value="">เลือกชื่อพนักงานก่อน</option></select>
+        </div>
+        <div class="field">
+          <label for="date">วันที่จอง</label>
+          <input id="date" type="date" required>
+        </div>
+        <div class="field">
+          <label for="timeSlot">ช่วงเวลาจอง</label>
+          <select id="timeSlot" required>
+            <option value="">เลือกช่วงเวลา</option>
+            <option value="11:00-12:00">11:00–12:00</option>
+            <option value="12:00-13:00">12:00–13:00</option>
+            <option value="14:00-15:00">14:00–15:00</option>
+            <option value="16:00-17:00">16:00–17:00</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="quantity">จำนวนเครื่องที่จอง</label>
+          <input id="quantity" type="number" min="1" step="1" value="1" required>
+          <div class="hint">ระบบจะตรวจสอบจำนวนคงเหลือของแผนกก่อนบันทึก</div>
+        </div>
+        <div class="field">
+          <label for="employeeId">รหัสพนักงาน</label>
+          <input id="employeeId" readonly placeholder="ดึงจากชีต รายการคอมพิวเตอร์_พร้อมแผน">
+        </div>
+        <div class="field wide">
+          <div id="quota" class="quota">เลือกแผนก วันที่ และช่วงเวลา เพื่อดูโควตาการจอง</div>
+        </div>
+        <div class="field wide">
+          <label for="note">หมายเหตุ (ถ้ามี)</label>
+          <textarea id="note" rows="2" placeholder="รายละเอียดเพิ่มเติม"></textarea>
+        </div>
+        <div class="field wide"><button class="btn" id="submitBtn" type="submit">ยืนยันการจอง PM</button></div>
+      </div>
+      <div id="status" class="status" role="status"></div>
+    </form>
+  </section>
+  <div class="foot">THAIKALI PM Booking System</div>
+</div>
+<script>
+let appData = null;
+const $ = id => document.getElementById(id);
+const norm = s => String(s || '').trim().toLowerCase().replace(/\\s+/g,' ');
+function showStatus(message, ok) {
+  const el=$('status'); el.textContent=message; el.className='status '+(ok?'ok':'err');
+}
+async function api(action, payload={}) {
+  const response = await fetch('/api', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action,payload})});
+  let result;
+  try { result = await response.json(); }
+  catch (_) { throw new Error('API ส่งข้อมูลไม่ใช่ JSON กรุณาตรวจสอบการตั้งค่า Cloudflare และ Google Apps Script'); }
+  if (!response.ok || !result.ok) {
+    const detail = result.hint ? `${result.error || 'เชื่อมต่อระบบไม่สำเร็จ'} (${result.hint})` : (result.error || 'เชื่อมต่อระบบไม่สำเร็จ');
+    throw new Error(detail);
+  }
+  return result.data;
+}
+async function loadData() {
+  try {
+    const data=await api('getAppData'); appData=data;
+    const emp=$('employee'); emp.innerHTML='<option value="">เลือกชื่อพนักงาน</option>';
+    (data.employees||[]).forEach((e,i)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=e.name+(e.department?' — '+e.department:''); emp.appendChild(o); });
+    if (!(data.employees||[]).length) emp.innerHTML='<option value="">ไม่พบรายชื่อ กรุณาตรวจสอบชีต User</option>';
+    updateEmployee(); updateQuota();
+  } catch(err) { showStatus(err.message||String(err),false); }
+}
+function updateEmployee() {
+  const e=(appData?.employees||[])[Number($('employee').value)];
+  $('department').innerHTML='<option value="">เลือกแผนก</option>';
+  $('employeeId').value=e?.employeeId||'';
+  if(e) {
+    const o=document.createElement('option'); o.value=e.department; o.textContent=e.department||'(ไม่ระบุแผนก)';
+    $('department').appendChild(o); $('department').value=e.department||'';
+  }
+  updateQuota();
+}
+function updateQuota() {
+  const dept=$('department').value, date=$('date').value, slot=$('timeSlot').value;
+  if(!dept||!date||!slot||!appData){$('quota').textContent='เลือกแผนก วันที่ และช่วงเวลา เพื่อดูโควตาการจอง';return;}
+  const capacity=(appData.bookings||[]); // live capacity is checked again on the server at submission
+  const used=capacity.filter(b=>norm(b.Department)===norm(dept)&&String(b.PMDate).slice(0,10)===date&&String(b.TimeSlot)===slot&&['BOOKED','APPROVED','IN_PROGRESS'].includes(String(b.Status)))
+    .reduce((s,b)=>s+Number(b.Quantity||0),0);
+  $('quota').textContent='จำนวนเครื่องสูงสุดของแผนกอ้างอิงจากชีต “รายการคอมพิวเตอร์_พร้อมแผน” ระบบจะตรวจสอบโควตาอีกครั้งก่อนบันทึก (จองแล้วช่วงนี้: '+used+' เครื่อง)';
+}
+$('employee').addEventListener('change',updateEmployee);
+['department','date','timeSlot'].forEach(id=>$(id).addEventListener('change',updateQuota));
+$('bookingForm').addEventListener('submit',ev=>{
+  ev.preventDefault();
+  const e=(appData?.employees||[])[Number($('employee').value)];
+  if(!e){showStatus('กรุณาเลือกชื่อพนักงานจากชีต User',false);return;}
+  const payload={employeeName:e.name,employeeId:e.employeeId||'',department:$('department').value,date:$('date').value,timeSlot:$('timeSlot').value,quantity:Number($('quantity').value),note:$('note').value};
+  $('submitBtn').disabled=true; $('submitBtn').textContent='กำลังบันทึก...';
+  api('createBooking',payload).then(res=>{
+    showStatus(res.message+'\nเลขที่การจอง: '+res.bookingId+'\nจำนวนตามแผนก: '+res.capacity+' เครื่อง | จองรวมช่วงนี้: '+res.used+' เครื่อง | คงเหลือ: '+res.remaining+' เครื่อง',true);
+    $('submitBtn').disabled=false; $('submitBtn').textContent='ยืนยันการจอง PM'; loadData();
+  }).catch(err=>{
+    showStatus(err.message||String(err),false); $('submitBtn').disabled=false; $('submitBtn').textContent='ยืนยันการจอง PM';
+  });
+});
+const today=new Date(); $('date').min=new Date(today.getTime()-today.getTimezoneOffset()*60000).toISOString().slice(0,10);
+loadData();
+</script>
+</body>
+</html>
